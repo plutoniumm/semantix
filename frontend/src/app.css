@@ -1,0 +1,40 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #fff;
+  color: #1a1a1a;
+}
+
+:root {
+  --color-primary: #2563eb;
+  --color-border: #e2e8f0;
+  --color-text: #1a1a1a;
+  --color-text-muted: #64748b;
+  --color-error: #ef4444;
+  --color-success: #16a34a;
+  --bg-app: #fff;
+  --bg-surface: #f8fafc;
+  --bg-panel: #f0f4f8;
+
+  --mark-del-bg: rgba(239, 68, 68, 0.12);
+  --mark-del-line: rgba(239, 68, 68, 0.85);
+  --mark-spell-line: rgba(239, 68, 68, 0.9);
+  --mark-ins-color: #ef4444;
+  --mark-ctx-bg: rgba(239, 68, 68, 0.10);
+
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
