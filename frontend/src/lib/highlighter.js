@@ -8,9 +8,16 @@ function escapeHtml ( str ) {
 }
 
 class BackdropHighlighter {
-  build ( text, sentences ) {
+  build ( text, sentences, staticRanges = [] ) {
     if ( !text ) return ''
     const ranges = this._collectRanges( text, sentences )
+
+    for ( const { start, end, type } of staticRanges ) {
+      if ( start < end ) {
+        ranges.push( { start, end, type, ctxStart: start, ctxEnd: end } )
+      }
+    }
+
     if ( !ranges.length ) return escapeHtml( text )
     return this._renderHtml( text, this._filterOverlaps( ranges ) )
   }
@@ -125,7 +132,13 @@ class BackdropHighlighter {
       } else if ( type === 'spell' ) {
         html += `<span class="frag-spell">${ content }</span>`
       } else if ( type === 'ins' ) {
-        html += `<span class="frag-ins"></span>`
+        html += '<span class="frag-ins"></span>'
+      } else if ( type === 'cliche' ) {
+        html += `<span class="frag-cliche">${ content }</span>`
+      } else if ( type === 'rep' ) {
+        html += `<span class="frag-rep">${ content }</span>`
+      } else if ( type === 'cite' ) {
+        html += `<span class="frag-cite">${ content }</span>`
       }
 
       html += escapeHtml( text.slice( end, outerEnd ) )
@@ -139,6 +152,18 @@ class BackdropHighlighter {
 
 export const highlighter = new BackdropHighlighter()
 
-export function buildBackdropHtml ( text, sentences ) {
-  return highlighter.build( text, sentences )
+export function buildBackdropHtml ( text, sentences, staticRanges = [] ) {
+  return highlighter.build( text, sentences, staticRanges )
+}
+
+// Renders text with a single range wrapped in .frag-active — used as a
+// separate backdrop layer so the sentence wash never collides with issue marks.
+export function buildRangeHtml ( text, range ) {
+  if ( !text ) return ''
+  if ( !range || range.start == null || range.start >= range.end ) return escapeHtml( text )
+  const start = Math.max( 0, Math.min( range.start, text.length ) )
+  const end = Math.max( start, Math.min( range.end, text.length ) )
+  return escapeHtml( text.slice( 0, start ) )
+    + `<span class="frag-active">${ escapeHtml( text.slice( start, end ) ) }</span>`
+    + escapeHtml( text.slice( end ) )
 }

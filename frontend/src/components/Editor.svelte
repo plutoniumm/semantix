@@ -1,17 +1,21 @@
 <script>
   import { createEventDispatcher } from "svelte";
-  import { buildBackdropHtml } from "../lib/highlighter.js";
+  import { buildBackdropHtml, buildRangeHtml } from "../lib/highlighter.js";
 
   export let value = "";
   export let sentences = [];
   export let activeIndex = null;
+  export let staticRanges = [];
+  export let activeRange = null;
 
   const dispatch = createEventDispatcher();
 
   let textareaEl;
   let backdropEl;
+  let activeEl;
 
-  $: backdropHtml = buildBackdropHtml(value, sentences);
+  $: backdropHtml = buildBackdropHtml(value, sentences, staticRanges);
+  $: activeHtml = buildRangeHtml(value, activeRange);
 
   function handleInput(e) {
     value = e.target.value;
@@ -19,9 +23,25 @@
   }
 
   function syncScroll() {
-    if (backdropEl && textareaEl) {
-      backdropEl.scrollTop = textareaEl.scrollTop;
-    }
+    if (!textareaEl) return;
+    if (backdropEl) backdropEl.scrollTop = textareaEl.scrollTop;
+    if (activeEl) activeEl.scrollTop = textareaEl.scrollTop;
+  }
+
+  function scrollAllTo(scrollTop) {
+    textareaEl.scrollTo({ top: scrollTop, behavior: "smooth" });
+    backdropEl.scrollTop = scrollTop;
+    if (activeEl) activeEl.scrollTop = scrollTop;
+  }
+
+  // The active-sentence wash is already laid out in the ghost layer, so its
+  // span's offsetTop is the scroll target — no measurement DOM needed.
+  export function scrollToActive() {
+    if (!textareaEl || !activeEl) return false;
+    const span = activeEl.querySelector(".frag-active");
+    if (!span) return false;
+    scrollAllTo(Math.max(0, span.offsetTop - textareaEl.clientHeight / 3));
+    return true;
   }
 
   export function highlightRange(start, end) {
@@ -45,35 +65,14 @@
     );
     contentEl.innerHTML = savedHtml;
 
-    textareaEl.scrollTop = scrollTop;
-    backdropEl.scrollTop = scrollTop;
-  }
-
-  export function findAndScrollTo(phrase) {
-    if (!textareaEl || !backdropEl || !window.find) return false;
-
-    const found = window.find(phrase, false, false, true);
-    if (!found) return false;
-
-    const sel = window.getSelection();
-    const rect =
-      sel?.rangeCount > 0 ? sel.getRangeAt(0).getBoundingClientRect() : null;
-    sel?.removeAllRanges();
-    if (!rect) return false;
-
-    const textareaRect = textareaEl.getBoundingClientRect();
-    const currentOffset = rect.top - textareaRect.top;
-    const scrollTop = Math.max(
-      0,
-      textareaEl.scrollTop + currentOffset - textareaEl.clientHeight / 3,
-    );
-    textareaEl.scrollTop = scrollTop;
-    backdropEl.scrollTop = scrollTop;
-    return true;
+    scrollAllTo(scrollTop);
   }
 </script>
 
 <div class="editor-wrapper" class:has-active={activeIndex !== null}>
+  <div class="backdrop active-layer" bind:this={activeEl} aria-hidden="true">
+    <div class="backdrop-content">{@html activeHtml}</div>
+  </div>
   <div class="backdrop" bind:this={backdropEl} aria-hidden="true">
     <div class="backdrop-content">{@html backdropHtml}</div>
   </div>
@@ -151,6 +150,32 @@
 
   :global(.frag-ctx) {
     background: var(--mark-ctx-bg);
+    border-radius: var(--radius-sm);
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  :global(.frag-cliche) {
+    background: var(--mark-cliche-bg);
+    border-radius: var(--radius-sm);
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  :global(.frag-rep) {
+    background: var(--mark-rep-bg);
+    border-radius: var(--radius-sm);
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  :global(.frag-cite) {
+    text-decoration: underline wavy;
+    text-decoration-color: var(--mark-cite-line);
+  }
+
+  :global(.frag-active) {
+    background: var(--mark-active-bg);
     border-radius: var(--radius-sm);
     -webkit-box-decoration-break: clone;
     box-decoration-break: clone;

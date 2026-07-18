@@ -3,22 +3,23 @@ import asyncio
 import re
 import nltk
 import httpx
+from backend import llm
 from backend.cache import cache
+from backend.config import get as get_config
 
 nltk.download("punkt_tab", quiet=True)
 
 
-OLLAMA_BASE = "http://100.117.92.56:11434"
-OLLAMA_URL = f"{OLLAMA_BASE}/api/generate"
-OLLAMA_MODEL = "lfm2:latest"
-CONNECT_TIMEOUT = 5.0
-READ_TIMEOUT = 30.0
+READ_TIMEOUT = 120.0
 MIN_WORDS = 3
 
 SYSTEM_PROMPT_TEMPLATE = (
-    "You are a professional writing assistant. "
+    "You are a professional writing assistant for formal documents. "
     "Analyse the following sentence for grammar, spelling, style, and punctuation errors. "
     "Use {variant} English conventions. "
+    "Flag contractions (e.g. don't, it's, they're — expand them in the suggestion, e.g. don't → do not), "
+    "colloquialisms (e.g. pretty much, kind of, gonna), "
+    "and informal intensifiers (very, really) as style issues. "
     "Return a JSON object only, no prose. Schema: "
     '{{"issues": [{{"type": "grammar|spelling|style|punctuation", '
     '"original_fragment": "...", "suggestion": "...", "explanation": "..."}}]}} '
@@ -28,27 +29,76 @@ SYSTEM_PROMPT_TEMPLATE = (
 
 class LaTeXPreprocessor:
     MATH_ENVS = (
-        "align", "align*", "equation", "equation*", "gather", "gather*",
-        "multline", "multline*", "eqnarray", "eqnarray*", "displaymath",
+        "align",
+        "align*",
+        "equation",
+        "equation*",
+        "gather",
+        "gather*",
+        "multline",
+        "multline*",
+        "eqnarray",
+        "eqnarray*",
+        "displaymath",
     )
     NON_PROSE_ENVS = (
-        "algorithm", "algorithmic", "lstlisting", "verbatim",
-        "tabular", "array", "pmatrix", "bmatrix", "vmatrix", "matrix",
+        "algorithm",
+        "algorithmic",
+        "lstlisting",
+        "verbatim",
+        "tabular",
+        "array",
+        "pmatrix",
+        "bmatrix",
+        "vmatrix",
+        "matrix",
     )
     FORMATTING_CMDS = (
-        "textit", "textbf", "emph", "texttt", "textrm", "textsc", "text", "mbox",
+        "textit",
+        "textbf",
+        "emph",
+        "texttt",
+        "textrm",
+        "textsc",
+        "text",
+        "mbox",
     )
     SECTION_CMDS = (
-        "section", "subsection", "subsubsection", "paragraph", "title",
+        "section",
+        "subsection",
+        "subsubsection",
+        "paragraph",
+        "title",
     )
     CITE_CMDS = ("cite", "citep", "citet", "citealt", "nocite")
-    REF_CMDS  = ("ref", "eqref", "pageref")
+    REF_CMDS = ("ref", "eqref", "pageref")
     METADATA_CMDS = (
-        "label", "bibliography", "bibliographystyle", "newcommand", "renewcommand",
-        "acmJournal", "acmVolume", "acmNumber", "acmArticle", "acmYear", "acmDOI",
-        "setcopyright", "author", "affiliation", "institution", "department",
-        "city", "country", "date", "keywords", "hspace", "vspace",
-        "setcounter", "addtocounter", "usepackage", "documentclass",
+        "label",
+        "bibliography",
+        "bibliographystyle",
+        "newcommand",
+        "renewcommand",
+        "acmJournal",
+        "acmVolume",
+        "acmNumber",
+        "acmArticle",
+        "acmYear",
+        "acmDOI",
+        "setcopyright",
+        "author",
+        "affiliation",
+        "institution",
+        "department",
+        "city",
+        "country",
+        "date",
+        "keywords",
+        "hspace",
+        "vspace",
+        "setcounter",
+        "addtocounter",
+        "usepackage",
+        "documentclass",
     )
 
     def preprocess(self, text: str) -> str:
@@ -79,7 +129,9 @@ class LaTeXPreprocessor:
             esc = re.escape(env)
             text = re.sub(
                 r"\\begin\{" + esc + r"\}.*?\\end\{" + esc + r"\}",
-                " ", text, flags=re.DOTALL,
+                " ",
+                text,
+                flags=re.DOTALL,
             )
         return text
 
@@ -96,7 +148,9 @@ class LaTeXPreprocessor:
             esc = re.escape(env)
             text = re.sub(
                 r"\\begin\{" + esc + r"\*?\}.*?\\end\{" + esc + r"\*?\}",
-                " ", text, flags=re.DOTALL,
+                " ",
+                text,
+                flags=re.DOTALL,
             )
         return text
 
@@ -145,21 +199,20 @@ class LaTeXPreprocessor:
         return text.strip()
 
 
+def _strip_fences(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw)
+    return raw
+
+
 class TextAnalyzer:
-    BATCH_SIZE = 3
+    # Matches Ollama's parallel slots (-np 4); more would just queue server-side.
+    CONCURRENCY = 4
 
     def __init__(self):
         self._preprocessor = LaTeXPreprocessor()
-
-    async def probe_ollama(self) -> bool:
-        try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=CONNECT_TIMEOUT, read=5.0, write=5.0, pool=5.0)
-            ) as client:
-                await client.get(OLLAMA_BASE)
-            return True
-        except (httpx.ConnectError, httpx.TimeoutException):
-            return False
 
     def split(self, text: str, mode: str = "plain") -> list[str]:
         if not text or not text.strip():
@@ -176,7 +229,8 @@ class TextAnalyzer:
         return result
 
     async def analyze_sentence(self, sentence: str, variant: str, idx: int) -> dict:
-        cached = cache.get(sentence, variant)
+        model = get_config()["analyzer_model"]
+        cached = cache.get(sentence, variant, model)
         if cached is not None:
             return {**cached, "sentence_index": idx, "original": sentence}
 
@@ -184,27 +238,26 @@ class TextAnalyzer:
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(variant=variant_label)
 
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=CONNECT_TIMEOUT, read=READ_TIMEOUT, write=5.0, pool=5.0)
-            ) as client:
-                response = await client.post(
-                    OLLAMA_URL,
-                    json={
-                        "model": OLLAMA_MODEL,
-                        "prompt": sentence,
-                        "system": system_prompt,
-                        "format": "json",
-                        "stream": False,
-                    },
-                )
-            raw = response.json().get("response", "")
-            data = json.loads(raw)
+            raw = await llm.chat(
+                model=model,
+                system=system_prompt,
+                user=sentence,
+                json_mode=True,
+                read_timeout=READ_TIMEOUT,
+            )
+            data = json.loads(_strip_fences(raw))
             issues = data.get("issues", [])
             result = {"issues": issues, "parse_error": False}
-            cache.put(sentence, variant, result)
+            cache.put(sentence, variant, result, model)
             return {**result, "sentence_index": idx, "original": sentence}
 
-        except (httpx.TimeoutException, httpx.ConnectError, json.JSONDecodeError, KeyError, ValueError):
+        except (
+            httpx.HTTPError,
+            json.JSONDecodeError,
+            KeyError,
+            IndexError,
+            ValueError,
+        ):
             return {
                 "sentence_index": idx,
                 "original": sentence,
@@ -218,17 +271,22 @@ class TextAnalyzer:
         if not sentences:
             return
 
-        if not await self.probe_ollama():
+        if not await llm.probe():
             raise RuntimeError("LLM unavailable")
 
-        for i in range(0, len(sentences), self.BATCH_SIZE):
-            batch = sentences[i : i + self.BATCH_SIZE]
-            results = await asyncio.gather(*[
-                self.analyze_sentence(s, variant, i + j)
-                for j, s in enumerate(batch)
-            ])
-            for r in results:
-                yield r
+        sem = asyncio.Semaphore(self.CONCURRENCY)
+
+        async def bounded(sentence: str, idx: int) -> dict:
+            async with sem:
+                return await self.analyze_sentence(sentence, variant, idx)
+
+        tasks = [asyncio.create_task(bounded(s, i)) for i, s in enumerate(sentences)]
+        try:
+            for fut in asyncio.as_completed(tasks):
+                yield await fut
+        finally:
+            for t in tasks:
+                t.cancel()
 
 
 _analyzer = TextAnalyzer()
@@ -245,3 +303,7 @@ async def analyze_sentence(sentence: str, variant: str, sentence_index: int) -> 
 async def analyze_text(text: str, variant: str, mode: str = "plain"):
     async for r in _analyzer.analyze_text(text, variant, mode):
         yield r
+
+
+async def probe_llm() -> bool:
+    return await llm.probe()

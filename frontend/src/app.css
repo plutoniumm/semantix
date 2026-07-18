@@ -31,6 +31,10 @@ body,
   --mark-spell-line: rgba(239, 68, 68, 0.9);
   --mark-ins-color: #ef4444;
   --mark-ctx-bg: rgba(239, 68, 68, 0.10);
+  --mark-cliche-bg: rgba(139, 92, 246, 0.15);
+  --mark-rep-bg: rgba(245, 158, 11, 0.18);
+  --mark-cite-line: rgba(3, 105, 161, 0.8);
+  --mark-active-bg: rgba(37, 99, 235, 0.09);
 
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
 

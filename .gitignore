@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+backend/cache.db
+semantix.config.json
 node_modules/
 frontend/dist/
 .env

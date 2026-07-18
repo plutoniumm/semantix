@@ -4,3 +4,6 @@ nltk
 httpx
 pytest
 pytest-asyncio
+transformers
+sentencepiece
+accelerate
